@@ -1,0 +1,129 @@
+﻿-- 1. Nombre total d’appartements vendus au 1er semestre 2020.
+SELECT COUNT(DISTINCT vente.id_bien) AS nb_ventes
+FROM Vente
+JOIN Bien ON Vente.id_bien = Bien.id_bien
+WHERE Bien.type_local = 'Appartement' 
+  AND date_vente BETWEEN '2020-01-01' AND '2020-06-30';
+
+-- 2. Le nombre de ventes d’appartement par région pour le 1er semestre 2020.
+SELECT R.nom_region, COUNT(V.id_vente) AS nb_ventes
+FROM Vente V
+JOIN Bien B ON V.id_bien = B.id_bien
+JOIN Commune C ON B.id_commune = C.id_commune
+JOIN Region R ON C.reg_code = R.reg_code
+WHERE B.type_local = 'Appartement' AND date_vente BETWEEN '2020-01-01' AND '2020-06-30'
+GROUP BY R.nom_region
+ORDER BY nb_ventes DESC;
+
+-- 3. Proportion des ventes d’appartements par le nombre de pièces.
+SELECT nombre_pieces, 
+       ROUND(COUNT(id_bien) * 100.0 / (SELECT COUNT(id_bien) FROM Bien WHERE type_local = 'Appartement'), 2) AS proportion
+FROM Bien
+WHERE type_local = 'Appartement'
+GROUP BY nombre_pieces;
+
+-- 4. Liste des 10 départements où le prix du mètre carré est le plus élevé.
+SELECT C.code_departement, ROUND(AVG(V.valeur / B.surface), 2) AS prix_m2
+FROM Vente V
+JOIN Bien B ON V.id_bien = B.id_bien
+JOIN Commune C ON B.id_commune = C.id_commune
+GROUP BY C.code_departement
+ORDER BY prix_m2 DESC
+LIMIT 10;
+
+-- 5. Prix moyen du mètre carré d’une maison en Île-de-France.
+SELECT ROUND(AVG(V.valeur / B.surface), 2) AS prix_m2
+FROM Vente V
+JOIN Bien B ON V.id_bien = B.id_bien
+JOIN Commune C ON B.id_commune = C.id_commune
+JOIN Region R ON C.reg_code = R.reg_code
+WHERE R.nom_region = 'Ile-de-France' AND B.type_local = 'Maison';
+
+-- 6. Liste des 10 appartements les plus chers avec la région, la surface, la valeur, l’id du bien et le département
+SELECT 
+    V.id_bien, C.code_departement,
+    R.nom_region, B.surface, V.valeur
+FROM Vente V
+JOIN Bien B ON V.id_bien = B.id_bien
+JOIN Commune C ON B.id_commune = C.id_commune
+JOIN Region R ON C.reg_code = R.reg_code
+WHERE B.type_local = 'Appartement'
+ORDER BY V.valeur DESC
+LIMIT 10;
+
+-- 7. Taux d’évolution du nombre de ventes entre le 1er et le 2e trimestre de 2020.
+SELECT ROUND(((t2.nb_ventes - t1.nb_ventes) * 100.0 / t1.nb_ventes), 2) AS taux_evolution
+FROM (
+    SELECT COUNT(id_vente) AS nb_ventes FROM Vente 
+    WHERE date_vente BETWEEN '2020-01-01' AND '2020-03-31'
+) t1,
+(
+    SELECT COUNT(id_vente) AS nb_ventes FROM Vente 
+    WHERE date_vente BETWEEN '2020-04-01' AND '2020-06-30'
+) t2;
+
+-- 8. Classement des régions par rapport au prix au mètre carré des appartements de plus de 4 pièces.
+SELECT R.nom_region, ROUND(AVG(V.valeur / B.surface), 2) AS prix_m2
+FROM Vente V
+JOIN Bien B ON V.id_bien = B.id_bien
+JOIN Commune C ON B.id_commune = C.id_commune
+JOIN Region R ON C.reg_code = R.reg_code
+WHERE B.type_local = 'Appartement' AND B.nombre_pieces > 4
+GROUP BY R.nom_region
+ORDER BY prix_m2 DESC;
+
+-- 9. Liste des communes ayant eu au moins 50 ventes au 1er trimestre 2020.
+SELECT 
+    CASE 
+        WHEN C.nom_commune LIKE 'Paris%' THEN 'Paris'
+        WHEN C.nom_commune LIKE 'Marseille%' THEN 'Marseille'
+        ELSE C.nom_commune 
+    END AS nom_commune_regroupee,
+    COUNT(id_vente) AS nb_ventes
+FROM Vente V
+JOIN Bien B ON V.id_bien = B.id_bien
+JOIN Commune C ON B.id_commune = C.id_commune
+WHERE V.date_vente BETWEEN '2020-01-01' AND '2020-03-31'
+GROUP BY nom_commune_regroupee
+HAVING nb_ventes >= 50
+ORDER BY nb_ventes DESC;
+
+-- 10. Différence en pourcentage du prix au mètre carré entre un appartement de 2 pièces et un appartement de 3 pièces.
+SELECT ROUND(((prix_3p - prix_2p) / prix_2p) * 100, 2) AS difference_pourcentage
+FROM (
+    SELECT 
+        (SELECT AVG(V.valeur / B.surface) FROM Vente V JOIN Bien B ON V.id_bien = B.id_bien WHERE B.type_local = 'Appartement' AND B.nombre_pieces = 3) AS prix_3p,
+        (SELECT AVG(V.valeur / B.surface) FROM Vente V JOIN Bien B ON V.id_bien = B.id_bien WHERE B.type_local = 'Appartement' AND B.nombre_pieces = 2) AS prix_2p
+);
+
+-- 11. Moyennes de valeurs foncières pour le top 3 des communes des départements 6, 13, 33, 59 et 69.
+SELECT 
+    code_departement,
+    nom_commune,
+    ROUND(valeur_moyenne, 0) AS valeur_moyenne
+FROM (
+    SELECT 
+        C.code_departement,
+        C.nom_commune,
+        AVG(V.valeur) AS valeur_moyenne,
+        RANK() OVER (PARTITION BY C.code_departement ORDER BY AVG(V.valeur) DESC) AS rang
+    FROM Vente V
+    JOIN Bien B ON V.id_bien = B.id_bien
+    JOIN Commune C ON B.id_commune = C.id_commune
+    WHERE C.code_departement IN ('06', '13', '33', '59', '69')
+    GROUP BY C.code_departement, C.nom_commune
+) AS classement
+WHERE rang <= 3
+ORDER BY code_departement, valeur_moyenne DESC;
+
+-- 12. Les 20 communes avec le plus de transactions pour 1000 habitants pour les communes qui dépassent les 10 000 habitants.
+SELECT C.nom_commune, ROUND((COUNT(*) * 1000.0 / C.nbre_habitants), 2) 
+AS transactions_pour_1000_hab
+FROM Vente V
+JOIN Bien B ON V.id_bien = B.id_bien
+JOIN Commune C ON B.id_commune = C.id_commune
+WHERE C.nbre_habitants > 10000
+GROUP BY C.nom_commune
+ORDER BY transactions_pour_1000_hab DESC
+LIMIT 20;
+
